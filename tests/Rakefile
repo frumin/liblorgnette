@@ -6,18 +6,14 @@ SHARED_CCFLAGS = "-std=c99 -lcurl"
 NEEDS_SUDO = true
 
 specs = [
-	{ :compiler => "clang", :arch => "i386",   :ccflags => "-O0" },
-	{ :compiler => "clang", :arch => "i386",   :ccflags => "-O3" },
 	{ :compiler => "clang", :arch => "x86_64", :ccflags => "-O0" },
 	{ :compiler => "clang", :arch => "x86_64", :ccflags => "-O3" },
 
-	{ :compiler => "gcc", :arch => "i386",   :ccflags => "-O0" },
-	{ :compiler => "gcc", :arch => "i386",   :ccflags => "-O3" },
 	{ :compiler => "gcc", :arch => "x86_64", :ccflags => "-O0" },
 	{ :compiler => "gcc", :arch => "x86_64", :ccflags => "-O3" },
 ]
 
-desc "Build test cases using clang and gcc compilers for i386 and x86_64 architectures"
+desc "Build test cases using clang and gcc compilers for x86_64 architecture"
 task :build do
 	system("mkdir build") if (!File.exists?(Dir.getwd + "/build"))
 	specs.each {|entry|

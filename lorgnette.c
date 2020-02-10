@@ -72,13 +72,21 @@ mach_vm_address_t lorgnette_lookup_image(task_t target, const char *symbol_name,
 	int err = KERN_SUCCESS;
 	uint32_t count = 0;
 	uint64_t shared_cache_slide = 0x0;
-	err = _image_headers_in_task(target, image_name, NULL, &count, &shared_cache_slide);
+	err = _image_headers_in_task(target,
+								 image_name,
+								 NULL,
+								 &count,
+								 &shared_cache_slide);
 	if (err != KERN_SUCCESS) {
 		return 0;
 	}
 
 	mach_vm_address_t *headers = malloc(sizeof(*headers) * count);
-	err =_image_headers_in_task(target, image_name, headers, &count, &shared_cache_slide);
+	err =_image_headers_in_task(target,
+								image_name,
+								headers,
+								&count,
+								&shared_cache_slide);
 	if (err != KERN_SUCCESS) {
 		free(headers);
 		return 0;
@@ -87,7 +95,10 @@ mach_vm_address_t lorgnette_lookup_image(task_t target, const char *symbol_name,
 	bool imageFromSharedCache = 0;
 	for (uint32_t i = 0; i < count; i++) {
 		mach_vm_address_t image = headers[i];
-		result = _scan_remote_image_for_symbol(target, image, symbol_name, &imageFromSharedCache);
+		result = _scan_remote_image_for_symbol(target,
+											   image,
+											   symbol_name,
+											   &imageFromSharedCache);
 		if (result > 0) {
 			/** Add ASLR slice only for the main image of the target */
 			if (i == 0) {
@@ -154,11 +165,19 @@ int _image_headers_in_task(task_t task,
 	RDFailOnError("task_info()", fail);
 
 	if (data.all_image_info_format == TASK_DYLD_ALL_IMAGE_INFO_32) {
-		return _image_headers_from_dyld_info32(task, data, suggested_image_name, count,
-											   headers, shared_cache_slide);
+		return _image_headers_from_dyld_info32(task,
+											   data,
+											   suggested_image_name,
+											   count,
+											   headers,
+											   shared_cache_slide);
 	} else {
-		return _image_headers_from_dyld_info64(task, data, suggested_image_name, count,
-											   headers, shared_cache_slide);
+		return _image_headers_from_dyld_info64(task,
+											   data,
+											   suggested_image_name,
+											   count,
+											   headers,
+											   shared_cache_slide);
 	}
 
 fail:
@@ -177,23 +196,31 @@ int _image_headers_from_dyld_info64(task_t target,
 	assert(shared_cache_slide);
 
 	int err = KERN_FAILURE;
-	struct dyld_all_image_infos_64 infos;
 	mach_vm_size_t size = dyld_info.all_image_info_size;
-	err = mach_vm_read_overwrite(target, dyld_info.all_image_info_addr, size,
-								 (mach_vm_address_t)&infos, &size);
+	struct dyld_all_image_infos_64 *infos = malloc(size);
+	err = mach_vm_read_overwrite(target,
+								 dyld_info.all_image_info_addr,
+								 size,
+								 (mach_vm_address_t)infos,
+								 &size);
 	RDFailOnError("mach_vm_read_overwrite()", fail);
 
-	*count = infos.infoArrayCount;
-	*shared_cache_slide = infos.sharedCacheSlide;
-
-	size = sizeof(struct dyld_image_info_64) * (*count);
-	struct dyld_image_info_64 *array = malloc((size_t)size);
-	err = mach_vm_read_overwrite(target, (mach_vm_address_t)infos.infoArray, size,
-								 (mach_vm_address_t)array, &size);
-	RDFailOnError("mach_vm_read_overwrite()", fail);
-
-	bool should_find_particular_image = (suggested_image_name != NULL);
+	*count = infos->infoArrayCount;
+	*shared_cache_slide = infos->sharedCacheSlide;
+	
+	struct dyld_image_info_64 *array;
 	if (headers) {
+		size = sizeof(struct dyld_image_info_64) * (*count);
+		array = malloc((size_t)size);
+		err = mach_vm_read_overwrite(target,
+									 (mach_vm_address_t)infos->infoArray,
+									 size,
+									 (mach_vm_address_t)array,
+									 &size);
+		RDFailOnError("mach_vm_read_overwrite()", failFree);
+		
+		bool should_find_particular_image = (suggested_image_name != NULL);
+
 		for (uint32_t i = 0; i < *count; i++) {
 			/// FIXME: Find a real location of the first image path
 			/* We have to always include the first image in the headers list
@@ -216,12 +243,16 @@ int _image_headers_from_dyld_info64(task_t target,
 				}
 			}
 		}
+		free(array);
 	}
-
-	free(array);
+	free(infos);
 	return KERN_SUCCESS;
 
 fail:
+	free(infos);
+	return KERN_FAILURE;
+failFree:
+	free(infos);
 	free(array);
 	return KERN_FAILURE;
 }
@@ -241,18 +272,24 @@ int _image_headers_from_dyld_info32(task_t target,
 	int err = KERN_FAILURE;
 	struct dyld_all_image_infos_32 infos;
 	mach_vm_size_t size = dyld_info.all_image_info_size;
-	err = mach_vm_read_overwrite(target, dyld_info.all_image_info_addr, size,
-								 (mach_vm_address_t)&infos, &size);
+	err = mach_vm_read_overwrite(target,
+								 dyld_info.all_image_info_addr,
+								 size,
+								 (mach_vm_address_t)&infos,
+								 &size);
 	RDFailOnError("mach_vm_read_overwrite()", fail);
-
+	
 	*count = infos.infoArrayCount;
 	*shared_cache_slide = infos.sharedCacheSlide;
 
 	size = sizeof(struct dyld_image_info_32) * (*count);
 	struct dyld_image_info_32 *array = malloc((size_t)size);
-	err = mach_vm_read_overwrite(target, (mach_vm_address_t)infos.infoArray, size,
-								 (mach_vm_address_t)array, &size);
-	RDFailOnError("mach_vm_read_overwrite()", fail);
+	err = mach_vm_read_overwrite(target,
+								 (mach_vm_address_t)infos.infoArray,
+								 size,
+								 (mach_vm_address_t)array,
+								 &size);
+	RDFailOnError("mach_vm_read_overwrite()", failFree);
 
 	bool should_find_particular_image = (suggested_image_name != NULL);
 	if (headers) {
@@ -284,6 +321,8 @@ int _image_headers_from_dyld_info32(task_t target,
 	return KERN_SUCCESS;
 
 fail:
+	return KERN_FAILURE;
+failFree:
 	free(array);
 	return KERN_FAILURE;
 }
@@ -307,7 +346,11 @@ mach_vm_address_t _scan_remote_image_for_symbol(task_t task,
 
 	mach_vm_size_t size = sizeof(struct mach_header);
 	struct mach_header header = {0};
-	err = mach_vm_read_overwrite(task, remote_header, size, (mach_vm_address_t)&header, &size);
+	err = mach_vm_read_overwrite(task,
+								 remote_header,
+								 size,
+								 (mach_vm_address_t)&header,
+								 &size);
 	RDFailOnError("mach_vm_read_overwrite()", fail);
 
 	bool sixtyfourbit = (header.magic == MH_MAGIC_64);
@@ -316,7 +359,7 @@ mach_vm_address_t _scan_remote_image_for_symbol(task_t task,
 	/* We don't support anything but i386 and x86_64 */
 	if (header.magic != MH_MAGIC && header.magic != MH_MAGIC_64) {
 		syslog(LOG_NOTICE, "liblorgnette ERROR: found image with unsupported architecture"
-				"at %p, skipping it.\n", (void *)remote_header);
+			   "at %p, skipping it.\n", (void *)remote_header);
 		return 0;
 	}
 
@@ -336,7 +379,11 @@ mach_vm_address_t _scan_remote_image_for_symbol(task_t task,
 	size = sizeof(command);
 
 	for (uint32_t i = 0; i < header.ncmds; i++) {
-		err = mach_vm_read_overwrite(task, command_addr, size, (mach_vm_address_t)&command, &size);
+		err = mach_vm_read_overwrite(task,
+									 command_addr,
+									 size,
+									 (mach_vm_address_t)&command,
+									 &size);
 		RDFailOnError("mach_vm_read_overwrite()", fail);
 
 		if (command.cmd == LC_SYMTAB) {
@@ -366,7 +413,11 @@ mach_vm_address_t _scan_remote_image_for_symbol(task_t task,
 
 	struct symtab_command symtab = {0};
 	size = sizeof(struct symtab_command);
-	err = mach_vm_read_overwrite(task, symtab_addr, size, (mach_vm_address_t)&symtab, &size);
+	err = mach_vm_read_overwrite(task,
+								 symtab_addr,
+								 size,
+								 (mach_vm_address_t)&symtab,
+								 &size);
 	RDFailOnError("mach_vm_read_overwrite", fail);
 
 	// FIXME: find a way to remove the copypasted code below
@@ -375,11 +426,17 @@ mach_vm_address_t _scan_remote_image_for_symbol(task_t task,
 	if (sixtyfourbit) {
 		struct segment_command_64 linkedit = {0};
 		size = sizeof(struct segment_command_64);
-		err = mach_vm_read_overwrite(task, linkedit_addr, size,
-									 (mach_vm_address_t)&linkedit, &size);
+		err = mach_vm_read_overwrite(task, linkedit_addr,
+									 size,
+									 (mach_vm_address_t)&linkedit,
+									 &size);
 		RDFailOnError("mach_vm_read_overwrite", fail);
 		struct segment_command_64 text = {0};
-		err = mach_vm_read_overwrite(task, text_addr, size, (mach_vm_address_t)&text, &size);
+		err = mach_vm_read_overwrite(task,
+									 text_addr,
+									 size,
+									 (mach_vm_address_t)&text,
+									 &size);
 		RDFailOnError("mach_vm_read_overwrite", fail);
 
 		uint64_t file_slide = linkedit.vmaddr - text.vmaddr - linkedit.fileoff;
@@ -398,7 +455,7 @@ mach_vm_address_t _scan_remote_image_for_symbol(task_t task,
 			uint64_t symname_addr = strings + sym.n_un.n_strx;
 			char *symname = _copyin_string(task, symname_addr);
 			/* Ignore the leading "_" character in a symbol name */
-			if (0 == strcmp(symbol_name, symname+1)) {
+			if (symname[0] != '\0' && 0 == strcmp(symbol_name, symname+1)) {
 				free(symname);
 				return (mach_vm_address_t)sym.n_value;
 			}
@@ -407,11 +464,18 @@ mach_vm_address_t _scan_remote_image_for_symbol(task_t task,
 	} else {
 		struct segment_command linkedit = {0};
 		size = sizeof(struct segment_command);
-		err = mach_vm_read_overwrite(task, linkedit_addr, size,
-									 (mach_vm_address_t)&linkedit, &size);
+		err = mach_vm_read_overwrite(task,
+									 linkedit_addr,
+									 size,
+									 (mach_vm_address_t)&linkedit,
+									 &size);
 		RDFailOnError("mach_vm_read_overwrite", fail);
 		struct segment_command text = {0};
-		err = mach_vm_read_overwrite(task, text_addr, size, (mach_vm_address_t)&text, &size);
+		err = mach_vm_read_overwrite(task,
+									 text_addr,
+									 size,
+									 (mach_vm_address_t)&text,
+									 &size);
 		RDFailOnError("mach_vm_read_overwrite", fail);
 
 		uint32_t file_slide = linkedit.vmaddr - text.vmaddr - linkedit.fileoff;
@@ -421,7 +485,11 @@ mach_vm_address_t _scan_remote_image_for_symbol(task_t task,
 		for (uint32_t i = 0; i < symtab.nsyms; i++) {
 			struct nlist sym = {{0}};
 			size = sizeof(struct nlist);
-			err = mach_vm_read_overwrite(task, sym_addr, size, (mach_vm_address_t)&sym, &size);
+			err = mach_vm_read_overwrite(task,
+										 sym_addr,
+										 size,
+										 (mach_vm_address_t)&sym,
+										 &size);
 			RDFailOnError("mach_vm_read_overwrite", fail);
 			sym_addr += size;
 
@@ -466,8 +534,11 @@ static char *_copyin_string(task_t task, mach_vm_address_t pointer)
 	// Users can requst symbols with very long names (e.g. C++ mangled method names, etc)
 	char buf[kRemoteStringBufferSize] = {0};
 	mach_vm_size_t sample_size = sizeof(buf);
-	err = mach_vm_read_overwrite(task, pointer, sample_size,
-								 (mach_vm_address_t)&buf, &sample_size);
+	err = mach_vm_read_overwrite(task,
+								 pointer,
+								 sample_size,
+								 (mach_vm_address_t)&buf,
+								 &sample_size);
 	assert(err == KERN_SUCCESS);
 	buf[kRemoteStringBufferSize-1] = '\0';
 
